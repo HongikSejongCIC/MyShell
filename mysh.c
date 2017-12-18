@@ -30,6 +30,24 @@
 #define STATE_CANONICAL      1
 
 #define DELIMS                " \t\r\n"
+/* alias 추가 하기 위한 선언*/
+#define MAXSIZE 	1024
+typedef struct list
+{
+	char *name;
+	char *value;
+	struct list *prev;
+	struct list *next;
+}list_t;
+
+list_t *ahead;	//alias list head
+list_t *atail; 	//alias list tail
+
+void __alias(char**);
+void init_list(void);
+void __unalias(char**);
+void convargvp(char**, size_t*);
+//////////// 여기까지///////////
 
 void set_input_mode(void);
 void reset_input_mode(void);
@@ -46,7 +64,7 @@ bool execute(char**, size_t);
 
 struct termios saved_tty;
 
-char* hist[MAX_HIST_SIZE];
+char* hist[MAX_HIST_SIZE]={0};
 int current_cursor = 0;
 
 int main(int argc, char** argv)
@@ -55,7 +73,8 @@ int main(int argc, char** argv)
 
   init_history(hist);
   set_input_mode();
-
+  init_list(); //list초기화
+  
   while(true)
   {
     char* arguments[MAX_ARG_LENGTH];
@@ -69,6 +88,8 @@ int main(int argc, char** argv)
     parse(line, arguments, &argument_count);
 
     if(argument_count == 0) continue;
+     
+    convargvp(arguments, &argument_count); //alias를 다시 역치환 
 
     if(strcmp(arguments[0], "exit") == 0)
       exit(EXIT_SUCCESS);
@@ -76,13 +97,24 @@ int main(int argc, char** argv)
       print_history(hist, current_cursor);
     else if(strcmp(arguments[0], "help") == 0)
     {
-      fprintf(stdout, "간단한 쉘 만들기\n");
-      fprintf(stdout, "학번: 201017093\n");
-      fprintf(stdout, "이름: 이상윤\n");
+      fprintf(stdout, "오픈소스소프트웨어 기말프로젝트 \n B389030 박휘만\n B389017 김한성\n");
     }
     else if(strcmp(arguments[0], "clear") == 0)
       system(arguments[0]);
-    else  
+////////////// alias 명령어 추가 ///////////////////
+    else if(strcmp(arguments[0], "alias") == 0)
+      __alias(arguments);
+////////////////////////////////////////////////////
+/////////////// unalias 명령어 /////////////////////
+    else if(strcmp(arguments[0], "unalias") == 0)
+      __unalias(arguments);
+////////////////////////////////////////////////////
+////////////// Change directory 명령어 추가 ///////////////////////
+    else if(strcmp(arguments[0], "cd") == 0){
+      chdir(arguments[1]);
+    }
+///////////////////////////////////////////////////////////////////
+    else 
       execute(arguments, argument_count);
   }
 
@@ -203,12 +235,20 @@ int prompt(char* line)
             --cur;
             if(cur < 0 ) cur = current_cursor - 1;
 
+	    
             fprintf(stdout, "\r%80s", " ");
             fprintf(stdout, "\r[%s]$ %s", get_current_dir_name(), hist[cur]);
 
             memset(line, '\0', MAX_LINE_LENGTH);
-            strcpy(line, hist[cur]);
+	///////////////////history segmentation fault/////////////////            
+	    if(hist[cur]==NULL)
+	    fprintf(stdout,"history blanked!");
+	    else{
+	//////////////////////////////////////////////////////////////
+	    strcpy(line, hist[cur]);
             n = strlen(line);
+	    }
+	    
 
             break;
 
@@ -296,6 +336,150 @@ bool parse(char* line, char** argv, size_t* argc)
 
   return true;
 }
+///////////////alias 함수///////////////////
+void __alias(char **argvp)
+{
+	list_t *t;
+	int n;
+	char *name, *value;
+	char alias[MAXSIZE] = {0};
+	
+	//alias 명령어만 쳤으면 alias list 출력
+	if(argvp[1] ==0)
+	{
+		t = ahead->next;
+		while(t != atail)
+		{
+			printf("%s=%s\n", t->name, t->value);
+			t = t->next;
+		}
+	}
+	else
+	{
+		//argvp로 분리되어있는 alias 내용을 합침
+		n = 1;
+		while(argvp[n] != NULL)
+		{
+			strcat(alias, argvp[n]);
+			strcat(alias, " ");
+			n++;
+		}
+
+
+		alias[strlen(alias)-1] = '\0';
+		
+		//새로운 alias list entry에 name과 value 저장
+		t = (list_t *)malloc(sizeof(list_t));
+		name = strtok(alias, "=");
+		value = strtok(NULL, "");
+		t->name = (char *)malloc(strlen(name)+1);
+		t->value = (char *)malloc(strlen(value)+1);
+		strcpy(t->name, name);
+		strcpy(t->value, value);
+
+		//alias list의 마지막에 삽입
+		t->prev = atail->prev;
+		t->next = atail;
+		atail->prev->next = t;
+		atail->prev = t;
+
+	}
+}
+//////////////////////////////////////////////
+/////////////////list 초기화////////////////////
+void init_list(void)
+{
+	ahead = (list_t *)malloc(sizeof(list_t));
+	atail = (list_t *)malloc(sizeof(list_t));
+
+	ahead->name = NULL;
+	ahead->value = NULL;
+	ahead->prev = ahead;
+	ahead->next = atail;
+	atail->name = NULL;
+	atail->value = NULL;
+	atail->value = NULL;
+	atail->prev = ahead;
+	atail->next = atail;
+}
+////////////////////////////////////////////
+//////////////////unalias//////////////////
+void __unalias(char **argvp)
+{
+	list_t *t, *del;
+	
+	t = ahead->next;
+	while(t != atail)
+	{
+		if(strcmp(t->name, argvp[1]) == 0)
+		{
+			del = t;
+			del->prev->next = del->next;
+			del->next->prev = del->prev;
+			t = t->next;
+			free(del);
+		}
+		else
+			t = t->next;
+	}
+}
+//////////////////////////////////////////////
+//////////////////alias 역치환////////////////////
+void convargvp(char **argvp, size_t *argc)
+{
+	int n, start=0, end=0, i=0, j=0, test=0;
+	char *name, *value, *tmp;
+	char argtmp[MAXSIZE] = {0};
+	char alias[8][MAXSIZE] = {0};
+	list_t *t;
+	
+	for(n=0; argvp[n]!=NULL; n++)
+	{
+		/* unalias라면 치환하지 않음 */
+		if(strcmp(argvp[0], "unalias") == 0)
+			break;
+		
+		/* 인자가 alias 인자라면 원래대로 치환 */
+		t = ahead->next;
+		while(t != atail)
+		{
+			if(strcmp(argvp[n], t->name) == 0)
+			{
+				/* alias 배열에 value의 명령어 구분하여 넣어줌 */
+				/* ex> 'ls -l'이였다면 ls와 -l 저장 */
+				strcpy(argtmp, t->value);
+				argtmp[0] = ' ';
+				argtmp[strlen(argtmp)-1] = '\0';
+				tmp = strtok(argtmp, " ");
+				strcpy(alias[i++], tmp);
+				while(tmp = strtok(NULL, " "))
+				{
+					strcpy(alias[i], tmp);
+					i++;
+				}
+			
+				/* argvp에 있는 인자들을 새로이 치환된 alias 인자들이 */
+				/* 들어올 수 있도록 공간 확보 차원에서 뒤로 옮김 */
+				while(argvp[++end]);
+				for(end; end>n; end--)
+				{
+					argvp[end+i-1] = argvp[end];
+				}
+
+				/* 비어있는 공간에 alias 인자 삽입*/
+				for(start=n, j=0; j<i; start++, j++)
+				{
+					tmp = (char *)malloc(strlen(alias[j])+1);
+					strcpy(tmp, alias[j]);
+					argvp[start] = tmp;
+				}
+			}
+			t = t->next;
+		}
+	}
+	*argc = n;
+}
+/////////////////////////////////////////////////////////////////////////////
 
 bool execute(char** argv, size_t argc)
 {
